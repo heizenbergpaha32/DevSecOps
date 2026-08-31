@@ -2,13 +2,13 @@ name: DevSecOps Pipeline with DefectDojo Integration
 
 on:
   push:
-    branches: [ "master", "main", "dev" ]
+    branches: [ "**" ]
   pull_request:
-    branches: [ "master", "main" ]
+    branches: [ "**" ]
   workflow_dispatch:
 
 jobs:
-  # 1. Поиск утечек секретов и учетных данных (Gitleaks)
+  # 1. Поиск секретов (Gitleaks)
   secrets-scan:
     name: Secret Detection (Gitleaks)
     runs-on: ubuntu-latest
@@ -41,7 +41,7 @@ jobs:
         if: always()
         run: |
           if [ -f semgrep-report.json ]; then
-            curl -X POST "${{ secrets.DEFECTDOJO_URL }}/api/v2/import-scan/" \
+            curl -v -X POST "${{ secrets.DEFECTDOJO_URL }}/api/v2/import-scan/" \
               -H "Authorization: Token ${{ secrets.DEFECTDOJO_API_KEY }}" \
               -F "engagement=${{ secrets.DEFECTDOJO_ENGAGEMENT_ID }}" \
               -F "scan_type=Semgrep JSON Report" \
@@ -72,7 +72,7 @@ jobs:
         if: always()
         run: |
           if [ -f trivy-report.json ]; then
-            curl -X POST "${{ secrets.DEFECTDOJO_URL }}/api/v2/import-scan/" \
+            curl -v -X POST "${{ secrets.DEFECTDOJO_URL }}/api/v2/import-scan/" \
               -H "Authorization: Token ${{ secrets.DEFECTDOJO_API_KEY }}" \
               -F "engagement=${{ secrets.DEFECTDOJO_ENGAGEMENT_ID }}" \
               -F "scan_type=Trivy Scan" \
