@@ -1,0 +1,83 @@
+name: DevSecOps Pipeline with DefectDojo Integration
+
+on:
+  push:
+    branches: [ "master", "main", "dev" ]
+  pull_request:
+    branches: [ "master", "main" ]
+  workflow_dispatch:
+
+jobs:
+  # 1. Поиск утечек секретов и учетных данных (Gitleaks)
+  secrets-scan:
+    name: Secret Detection (Gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: true
+        continue-on-error: true
+
+  # 2. Статический анализ исходного кода (Semgrep SAST) + отправка в DefectDojo
+  sast-scan:
+    name: SAST Scan (Semgrep)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Run Semgrep
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/src" returntocorp/semgrep semgrep scan --config=auto --json --output=semgrep-report.json || true
+
+      - name: Upload Semgrep to DefectDojo
+        if: always()
+        run: |
+          if [ -f semgrep-report.json ]; then
+            curl -X POST "${{ secrets.DEFECTDOJO_URL }}/api/v2/import-scan/" \
+              -H "Authorization: Token ${{ secrets.DEFECTDOJO_API_KEY }}" \
+              -F "engagement=${{ secrets.DEFECTDOJO_ENGAGEMENT_ID }}" \
+              -F "scan_type=Semgrep JSON Report" \
+              -F "active=true" \
+              -F "verified=true" \
+              -F "close_old_findings=true" \
+              -F "file=@semgrep-report.json"
+          fi
+
+  # 3. Анализ уязвимостей в зависимостях (Trivy SCA) + отправка в DefectDojo
+  sca-scan:
+    name: SCA Vulnerability Scan (Trivy)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy SCA
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'json'
+          output: 'trivy-report.json'
+        continue-on-error: true
+
+      - name: Upload Trivy to DefectDojo
+        if: always()
+        run: |
+          if [ -f trivy-report.json ]; then
+            curl -X POST "${{ secrets.DEFECTDOJO_URL }}/api/v2/import-scan/" \
+              -H "Authorization: Token ${{ secrets.DEFECTDOJO_API_KEY }}" \
+              -F "engagement=${{ secrets.DEFECTDOJO_ENGAGEMENT_ID }}" \
+              -F "scan_type=Trivy Scan" \
+              -F "active=true" \
+              -F "verified=true" \
+              -F "close_old_findings=true" \
+              -F "file=@trivy-report.json"
+          fi
