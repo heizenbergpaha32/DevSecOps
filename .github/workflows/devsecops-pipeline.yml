@@ -81,3 +81,19 @@ jobs:
               -F "close_old_findings=true" \
               -F "file=@trivy-report.json"
           fi
+# 4. Автоматическая доставка и обновление на VPS (CD)
+  deploy:
+    name: Deploy to VPS
+    needs: [sast-scan, sca-scan, secrets-scan]
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH and Redeploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /opt/defectdojo
+            docker compose pull || true
+            docker compose up -d
