@@ -25,7 +25,7 @@ jobs:
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: true
         continue-on-error: true
 
-  # 2. Статический анализ исходного кода (Semgrep SAST) + отправка в DefectDojo
+ # Этап 2: SAST (Static Application Security Testing)
   sast-scan:
     name: SAST Scan (Semgrep)
     runs-on: ubuntu-latest
@@ -33,23 +33,42 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Run Semgrep
+      # Сканирование с покрытием всех уровней архитектуры проекта
+      - name: Run Semgrep with Comprehensive Rulesets
         run: |
-          docker run --rm -v "${{ github.workspace }}:/src" returntocorp/semgrep semgrep scan --config=auto --json --output=semgrep-report.json || true
+          docker run --rm -v "${{ github.workspace }}:/src" returntocorp/semgrep semgrep scan \
+            --config "p/owasp-top-ten" \
+            --config "p/cwe-top-25" \
+            --config "p/python" \
+            --config "p/django" \
+            --config "p/javascript" \
+            --exclude="tests/" \
+            --exclude="unittests/" \
+            --json \
+            --output semgrep-report.json || true
 
-      - name: Upload Semgrep to DefectDojo
+      # Отправка структурированного отчета в DefectDojo
+      - name: Upload SAST Report to DefectDojo
         if: always()
         run: |
           if [ -f semgrep-report.json ]; then
-            curl -v -X POST "${{ secrets.DEFECTDOJO_URL }}/api/v2/import-scan/" \
+            curl -s -X POST "${{ secrets.DEFECTDOJO_URL }}/api/v2/import-scan/" \
               -H "Authorization: Token ${{ secrets.DEFECTDOJO_API_KEY }}" \
               -F "engagement=${{ secrets.DEFECTDOJO_ENGAGEMENT_ID }}" \
               -F "scan_type=Semgrep JSON Report" \
               -F "active=true" \
               -F "verified=true" \
-              -F "close_old_findings=true" \
+              -F "close_old_findings=false" \
               -F "file=@semgrep-report.json"
           fi
+
+      # Сохранение артефакта в сборке GitHub Actions
+      - name: Save SAST Report Artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: semgrep-sast-report
+          path: semgrep-report.json
 
   # 3. Анализ уязвимостей в зависимостях (Trivy SCA) + отправка в DefectDojo
   sca-scan:
