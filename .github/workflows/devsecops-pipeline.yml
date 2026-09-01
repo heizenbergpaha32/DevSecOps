@@ -112,7 +112,9 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          timeout: 60s
+          command_timeout: 10m
           script: |
             cd /opt/defectdojo
-            docker compose pull || true
-            docker compose up -d
+            docker compose up -d uwsgi celeryworker celerybeat nginx postgres valkey
