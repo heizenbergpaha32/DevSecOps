@@ -118,3 +118,63 @@ jobs:
           script: |
             cd /opt/defectdojo
             docker compose up -d uwsgi celeryworker celerybeat nginx postgres valkey
+# 5. Этап 3: DAST (Dynamic Application Security Testing) через OWASP ZAP
+  dast-scan:
+    name: DAST Scan (OWASP ZAP)
+    needs: [deploy]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # Сканирование запущенного сервиса на VPS
+      - name: Run OWASP ZAP Baseline Scan
+        uses: zaproxy/action-baseline@v0.14.0
+        with:
+          target: 'http://201.24.56.40:8080'
+          ruleset: ''
+          cmd_options: '-m 2 -a'
+        continue-on-error: true
+
+      # Конвертация / фиксация JSON-отчета
+      - name: Prepare ZAP Artifacts
+        if: always()
+        run: |
+          ls -la
+          # Проверяем наличие отчета ZAP (action-baseline генерирует zap_checksum или zap_out.json/report_json.json)
+          find . -name "*.json" -o -name "*.html"
+
+      # Отправка отчета DAST в DefectDojo
+      - name: Upload DAST to DefectDojo
+        if: always()
+        run: |
+          REPORT_FILE=$(find /home/runner/work/ -name "report_json.json" 2>/dev/null | head -n 1)
+          if [ -z "$REPORT_FILE" ]; then
+            REPORT_FILE=$(find . -name "zap_out.json" -o -name "*zap*.json" | head -n 1)
+          fi
+          
+          if [ -n "$REPORT_FILE" ] && [ -f "$REPORT_FILE" ]; then
+            echo "Found ZAP report: $REPORT_FILE"
+            curl -i -X POST "${{ secrets.DEFECTDOJO_URL }}/api/v2/import-scan/" \
+              -H "Authorization: Token ${{ secrets.DEFECTDOJO_API_KEY }}" \
+              -F "engagement=${{ secrets.DEFECTDOJO_ENGAGEMENT_ID }}" \
+              -F "scan_type=ZAP Scan" \
+              -F "active=true" \
+              -F "verified=true" \
+              -F "close_old_findings=false" \
+              -F "file=@$REPORT_FILE"
+          else
+            echo "ZAP report not found directly, dumping files:"
+            find . -maxdepth 2
+          fi
+
+      # Сохранение артефактов сканирования в GitHub Actions
+      - name: Upload ZAP Scan Artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zap-dast-report
+          path: |
+            *.html
+            *.json
+          if-no-files-found: ignore
