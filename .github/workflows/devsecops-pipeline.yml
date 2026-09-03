@@ -127,34 +127,23 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # Сканирование запущенного сервиса на VPS
       - name: Run OWASP ZAP Baseline Scan
         uses: zaproxy/action-baseline@v0.14.0
         with:
           target: 'http://201.24.56.40:8080'
           ruleset: ''
-          cmd_options: '-m 2 -a'
+          cmd_options: '-m 2 -a -r zap_report.html -x zap_report.xml'
         continue-on-error: true
 
-      # Конвертация / фиксация JSON-отчета
-      - name: Prepare ZAP Artifacts
-        if: always()
-        run: |
-          ls -la
-          # Проверяем наличие отчета ZAP (action-baseline генерирует zap_checksum или zap_out.json/report_json.json)
-          find . -name "*.json" -o -name "*.html"
-
-      # Отправка отчета DAST в DefectDojo
       - name: Upload DAST to DefectDojo
         if: always()
         run: |
-          REPORT_FILE=$(find /home/runner/work/ -name "report_json.json" 2>/dev/null | head -n 1)
-          if [ -z "$REPORT_FILE" ]; then
-            REPORT_FILE=$(find . -name "zap_out.json" -o -name "*zap*.json" | head -n 1)
-          fi
+          # Ищем сформированный XML-отчет ZAP
+          REPORT_FILE=$(find /home/runner/work/ -name "zap_report.xml" -o -name "*zap*.xml" -o -name "report_xml.xml" 2>/dev/null | head -n 1)
           
           if [ -n "$REPORT_FILE" ] && [ -f "$REPORT_FILE" ]; then
-            echo "Found ZAP report: $REPORT_FILE"
+            echo "Found ZAP XML report: $REPORT_FILE"
+            ls -lh "$REPORT_FILE"
             curl -i -X POST "${{ secrets.DEFECTDOJO_URL }}/api/v2/import-scan/" \
               -H "Authorization: Token ${{ secrets.DEFECTDOJO_API_KEY }}" \
               -F "engagement=${{ secrets.DEFECTDOJO_ENGAGEMENT_ID }}" \
@@ -164,11 +153,10 @@ jobs:
               -F "close_old_findings=false" \
               -F "file=@$REPORT_FILE"
           else
-            echo "ZAP report not found directly, dumping files:"
-            find . -maxdepth 2
+            echo "XML report not found, listing workspace:"
+            find . -name "*.xml" -o -name "*.json"
           fi
 
-      # Сохранение артефактов сканирования в GitHub Actions
       - name: Upload ZAP Scan Artifacts
         uses: actions/upload-artifact@v4
         if: always()
@@ -176,5 +164,6 @@ jobs:
           name: zap-dast-report
           path: |
             *.html
+            *.xml
             *.json
           if-no-files-found: ignore
